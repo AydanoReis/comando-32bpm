@@ -53,11 +53,12 @@ function TelaLogin({ onLogin }) {
   async function entrar() {
     if (!matricula || !senha) { setErro('Preencha todos os campos.'); return; }
     setLoading(true); setErro('');
-    const { data } = await supabase.from('usuarios_secao').select('*').eq('matricula', matricula).single();
+    const { data, error } = await supabase.from('usuarios_secao').select('*').eq('matricula', matricula.trim());
     setLoading(false);
-    if (!data) { setErro('Usuário não encontrado.'); return; }
-    if (data.senha !== senha) { setErro('Senha incorreta.'); return; }
-    onLogin(data);
+    if (error || !data || data.length === 0) { setErro('Usuário não encontrado.'); return; }
+    const usuario = data[0];
+    if (usuario.senha !== senha.trim()) { setErro('Senha incorreta.'); return; }
+    onLogin(usuario);
   }
 
   return (
