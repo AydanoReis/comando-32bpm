@@ -1012,14 +1012,170 @@ function PainelAdmin() {
 }
 
 // ============================================================
+// TROCAR SENHA
+// ============================================================
+function TrocarSenha({ usuario, onVoltar, onSucesso }) {
+  const [senhaAtual, setSenhaAtual] = useState('');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirma, setConfirma] = useState('');
+  const [erro, setErro] = useState('');
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar() {
+    setErro('');
+    if (!senhaAtual || !novaSenha || !confirma) { setErro('Preencha todos os campos.'); return; }
+    if (senhaAtual !== usuario.senha) { setErro('Senha atual incorreta.'); return; }
+    if (novaSenha.length < 4) { setErro('Nova senha deve ter no mínimo 4 caracteres.'); return; }
+    if (novaSenha !== confirma) { setErro('As senhas não coincidem.'); return; }
+    setSalvando(true);
+    const { error } = await supabase.from('usuarios_secao').update({ senha: novaSenha }).eq('id', usuario.id);
+    setSalvando(false);
+    if (error) { setErro('Erro ao salvar. Tente novamente.'); return; }
+    onSucesso();
+  }
+
+  return (
+    <Card>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <h2 style={{ fontSize:16, fontWeight:800, color:AZUL, margin:0 }}>🔑 Alterar Senha</h2>
+        <button onClick={onVoltar} style={{ ...btnSm, background:'#f0f4f8', color:AZUL2 }}>← Voltar</button>
+      </div>
+      <p style={{ color:'#6b8099', fontSize:13, marginBottom:16 }}>Conectado como: <strong>{usuario.nome}</strong></p>
+      <label style={lbl}>Senha atual</label>
+      <input type="password" value={senhaAtual} onChange={e => setSenhaAtual(e.target.value)} placeholder="••••••" style={{ ...inp, marginBottom:12 }} />
+      <label style={lbl}>Nova senha</label>
+      <input type="password" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} placeholder="Mínimo 4 caracteres" style={{ ...inp, marginBottom:12 }} />
+      <label style={lbl}>Confirmar nova senha</label>
+      <input type="password" value={confirma} onChange={e => setConfirma(e.target.value)} placeholder="Repita a nova senha" onKeyDown={e => e.key==='Enter'&&salvar()} style={{ ...inp, marginBottom:6 }} />
+      {erro && <p style={{ color:VERMELHO, fontSize:12, marginBottom:4 }}>{erro}</p>}
+      <button onClick={salvar} disabled={salvando} style={{ ...btnPrimary, opacity:salvando?0.7:1 }}>{salvando?'Salvando...':'Salvar Nova Senha'}</button>
+    </Card>
+  );
+}
+
+// ============================================================
+// TELA DE MENSAGENS
+// ============================================================
+function TelaMensagens({ usuario, ehComandante, msgs, setMsgs, onVoltar, onSucesso }) {
+  const [form, setForm] = useState({ titulo:'', texto:'', destinatario:'todos' });
+  const [salvando, setSalvando] = useState(false);
+  const SECOES_OPTS = ['todos','P1','P2','P3','P4','P5','AJD','SEC'];
+
+  async function enviar() {
+    if (!form.titulo || !form.texto) { onSucesso('Preencha título e mensagem.', 'erro'); return; }
+    setSalvando(true);
+    const { data, error } = await supabase.from('mensagens_comando').insert({
+      ...form, atualizado_por: usuario.nome, lida_por: []
+    }).select().single();
+    setSalvando(false);
+    if (error) { onSucesso('Erro ao enviar.', 'erro'); return; }
+    setMsgs(prev => [data, ...prev]);
+    setForm({ titulo:'', texto:'', destinatario:'todos' });
+    onSucesso('✅ Mensagem enviada!');
+  }
+
+  async function marcarLida(msg) {
+    if ((msg.lida_por||[]).includes(usuario.id)) return;
+    const novaLista = [...(msg.lida_por||[]), usuario.id];
+    await supabase.from('mensagens_comando').update({ lida_por: novaLista }).eq('id', msg.id);
+    setMsgs(prev => prev.map(m => m.id===msg.id ? {...m, lida_por:novaLista} : m));
+  }
+
+  async function remover(id) {
+    if (!window.confirm('Remover esta mensagem?')) return;
+    await supabase.from('mensagens_comando').delete().eq('id', id);
+    setMsgs(prev => prev.filter(m => m.id !== id));
+  }
+
+  const msgsFiltradas = msgs.filter(m => m.destinatario === 'todos' || m.destinatario === usuario.secao_sigla || ehComandante);
+
+  return (
+    <div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <h2 style={{ fontSize:16, fontWeight:800, color:AZUL, margin:0 }}>📨 Mensagens do Comando</h2>
+        <button onClick={onVoltar} style={{ ...btnSm, background:'#f0f4f8', color:AZUL2 }}>← Voltar</button>
+      </div>
+
+      {/* ENVIAR — só Comandante e Admin */}
+      {ehComandante && (
+        <Card>
+          <h3 style={{ fontSize:14, fontWeight:800, color:AZUL, marginBottom:14 }}>📤 Enviar Mensagem</h3>
+          <label style={lbl}>Destinatário</label>
+          <select value={form.destinatario} onChange={e => setForm(f=>({...f,destinatario:e.target.value}))} style={{ ...inp, marginBottom:10 }}>
+            {SECOES_OPTS.map(s => <option key={s} value={s}>{s === 'todos' ? '📢 Todos os chefes de seção' : s}</option>)}
+          </select>
+          <label style={lbl}>Título *</label>
+          <input value={form.titulo} onChange={e => setForm(f=>({...f,titulo:e.target.value}))} placeholder="Assunto da mensagem..." style={{ ...inp, marginBottom:10 }} />
+          <label style={lbl}>Mensagem *</label>
+          <textarea value={form.texto} onChange={e => setForm(f=>({...f,texto:e.target.value}))} placeholder="Digite sua mensagem..." style={{ ...inp, minHeight:100, resize:'vertical', marginBottom:6 }} />
+          <button onClick={enviar} disabled={salvando} style={{ ...btnPrimary, marginTop:8 }}>{salvando?'Enviando...':'📤 Enviar Mensagem'}</button>
+        </Card>
+      )}
+
+      {/* LISTA DE MENSAGENS */}
+      <div>
+        <h3 style={{ fontSize:14, fontWeight:800, color:AZUL, marginBottom:12 }}>📬 Caixa de Mensagens</h3>
+        {msgsFiltradas.length === 0 ? (
+          <Card><p style={{ color:'#aab', fontSize:13 }}>Nenhuma mensagem.</p></Card>
+        ) : msgsFiltradas.map(m => {
+          const lida = (m.lida_por||[]).includes(usuario.id);
+          return (
+            <div key={m.id} onClick={() => marcarLida(m)} style={{
+              background: lida ? '#fff' : '#FFFDE7',
+              borderRadius:10, padding:'14px 16px', marginBottom:10,
+              boxShadow:'0 2px 8px #00000012',
+              border: lida ? '1px solid #e0e8f0' : '2px solid #FFD54F',
+              cursor:'pointer'
+            }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:4, flexWrap:'wrap' }}>
+                    {!lida && <span style={{ background:VERMELHO, color:'#fff', borderRadius:6, padding:'1px 8px', fontSize:10, fontWeight:800 }}>NOVA</span>}
+                    <span style={{ background:'#E3F2FD', color:'#0D47A1', borderRadius:6, padding:'1px 8px', fontSize:10, fontWeight:700 }}>
+                      Para: {m.destinatario === 'todos' ? 'Todos' : m.destinatario}
+                    </span>
+                    <span style={{ fontSize:11, color:'#aab' }}>{new Date(m.created_at).toLocaleDateString('pt-BR')} às {new Date(m.created_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                  </div>
+                  <div style={{ fontWeight:700, color:AZUL, fontSize:14, marginBottom:6 }}>{m.titulo}</div>
+                  <div style={{ fontSize:13, color:'#2d4a63', lineHeight:1.5, whiteSpace:'pre-wrap' }}>{m.texto}</div>
+                  <div style={{ fontSize:11, color:'#aab', marginTop:6 }}>Enviado por: {m.atualizado_por}</div>
+                </div>
+                {ehComandante && (
+                  <button onClick={e => { e.stopPropagation(); remover(m.id); }} style={{ ...btnSm, background:'#FFEBEE', color:VERMELHO, flexShrink:0 }}>🗑️</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // APP PRINCIPAL
 // ============================================================
 export default function App() {
   const [usuario, setUsuario] = useState(null);
+  const [abaPrincipal, setAbaPrincipal] = useState('principal');
+  const [msgsSistema, setMsgsSistema] = useState([]);
+  const [toastGlobal, setToastGlobal] = useState(null);
 
   useEffect(() => {
     try { const u = sessionStorage.getItem('cmd_usuario'); if (u) setUsuario(JSON.parse(u)); } catch(e){}
   }, []);
+
+  useEffect(() => {
+    if (usuario) {
+      supabase.from('mensagens_comando').select('*').order('created_at', { ascending:false }).limit(10)
+        .then(({ data }) => setMsgsSistema(data||[]));
+    }
+  }, [usuario]);
+
+  function showToastGlobal(texto, tipo='ok') {
+    setToastGlobal({ texto, tipo });
+    setTimeout(() => setToastGlobal(null), 3000);
+  }
 
   function onLogin(u) { try { sessionStorage.setItem('cmd_usuario', JSON.stringify(u)); } catch(e){} setUsuario(u); }
   function sair() { try { sessionStorage.removeItem('cmd_usuario'); } catch(e){} setUsuario(null); }
@@ -1027,6 +1183,12 @@ export default function App() {
   const ehComandante = usuario?.nivel === 'comandante';
   const ehAdmin = usuario?.nivel === 'admin';
   const ehChefe = usuario?.nivel === 'chefe';
+
+  // Mensagens não lidas
+  const msgsNaoLidas = msgsSistema.filter(m =>
+    (m.destinatario === 'todos' || m.destinatario === usuario?.secao_sigla) &&
+    !(m.lida_por||[]).includes(usuario?.id)
+  );
 
   if (!usuario) return (
     <div style={{ minHeight:'100vh', background:CINZA, fontFamily:"'Inter','Segoe UI',sans-serif" }}>
@@ -1036,6 +1198,13 @@ export default function App() {
 
   return (
     <div style={{ minHeight:'100vh', background:CINZA, fontFamily:"'Inter','Segoe UI',sans-serif" }}>
+
+      {toastGlobal && (
+        <div style={{ position:'fixed', top:20, right:20, zIndex:9999, background:toastGlobal.tipo==='ok'?VERDE:VERMELHO, color:'#fff', borderRadius:10, padding:'12px 20px', fontWeight:700, fontSize:14, boxShadow:'0 4px 20px #00000030' }}>
+          {toastGlobal.texto}
+        </div>
+      )}
+
       {/* CABEÇALHO */}
       <div style={{ background:`linear-gradient(135deg,${AZUL} 0%,${AZUL2} 60%,${AZUL3} 100%)`, padding:'14px 24px', display:'flex', alignItems:'center', justifyContent:'space-between', boxShadow:'0 4px 20px #00000040' }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
@@ -1047,14 +1216,43 @@ export default function App() {
             <div style={{ color:'#8db4d8', fontSize:11 }}>32º BPM · {usuario.nome}</div>
           </div>
         </div>
-        <button onClick={sair} style={{ background:'rgba(255,255,255,0.12)', color:'#fff', border:'1px solid rgba(255,255,255,0.25)', borderRadius:8, padding:'7px 14px', cursor:'pointer', fontSize:13, fontWeight:600 }}>← Sair</button>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <button onClick={() => setAbaPrincipal(abaPrincipal==='mensagens'?'principal':'mensagens')} style={{ background:'rgba(255,255,255,0.12)', color:'#fff', border:'1px solid rgba(255,255,255,0.25)', borderRadius:8, padding:'7px 14px', cursor:'pointer', fontSize:13, fontWeight:600, position:'relative' }}>
+            📨 Mensagens
+            {msgsNaoLidas.length > 0 && <span style={{ position:'absolute', top:-6, right:-6, background:VERMELHO, color:'#fff', borderRadius:'50%', width:18, height:18, fontSize:10, fontWeight:800, display:'flex', alignItems:'center', justifyContent:'center' }}>{msgsNaoLidas.length}</span>}
+          </button>
+          <button onClick={() => setAbaPrincipal(abaPrincipal==='senha'?'principal':'senha')} style={{ background:'rgba(255,255,255,0.12)', color:'#fff', border:'1px solid rgba(255,255,255,0.25)', borderRadius:8, padding:'7px 14px', cursor:'pointer', fontSize:13, fontWeight:600 }}>🔑 Senha</button>
+          <button onClick={sair} style={{ background:'rgba(255,255,255,0.12)', color:'#fff', border:'1px solid rgba(255,255,255,0.25)', borderRadius:8, padding:'7px 14px', cursor:'pointer', fontSize:13, fontWeight:600 }}>← Sair</button>
+        </div>
       </div>
 
       {/* CONTEÚDO */}
       <div style={{ maxWidth:900, margin:'28px auto', padding:'0 14px' }}>
-        {ehAdmin && <PainelAdmin />}
-        {ehComandante && <DashboardComandante />}
-        {ehChefe && <TelaSecao usuario={usuario} />}
+
+        {/* TROCAR SENHA */}
+        {abaPrincipal === 'senha' && (
+          <TrocarSenha usuario={usuario} onVoltar={() => setAbaPrincipal('principal')} onSucesso={() => { showToastGlobal('✅ Senha alterada!'); setAbaPrincipal('principal'); }} />
+        )}
+
+        {/* MENSAGENS */}
+        {abaPrincipal === 'mensagens' && (
+          <TelaMensagens usuario={usuario} ehComandante={ehComandante||ehAdmin} msgs={msgsSistema} setMsgs={setMsgsSistema} onVoltar={() => setAbaPrincipal('principal')} onSucesso={showToastGlobal} />
+        )}
+
+        {/* PRINCIPAL */}
+        {abaPrincipal === 'principal' && (
+          <>
+            {msgsNaoLidas.length > 0 && (
+              <div style={{ background:'#FFF8E1', border:'2px solid #FFD54F', borderRadius:10, padding:'12px 16px', marginBottom:16, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span style={{ fontWeight:700, color:'#7B5800', fontSize:13 }}>📨 Você tem {msgsNaoLidas.length} mensagem{msgsNaoLidas.length>1?'s':''} não lida{msgsNaoLidas.length>1?'s':''} do Comando!</span>
+                <button onClick={() => setAbaPrincipal('mensagens')} style={{ ...btnSm, background:'#7B5800', color:'#fff' }}>Ver mensagens</button>
+              </div>
+            )}
+            {ehAdmin && <PainelAdmin />}
+            {ehComandante && <DashboardComandante />}
+            {ehChefe && <TelaSecao usuario={usuario} />}
+          </>
+        )}
       </div>
     </div>
   );
